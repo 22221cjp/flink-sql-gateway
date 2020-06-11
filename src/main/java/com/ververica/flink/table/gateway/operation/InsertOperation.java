@@ -81,7 +81,7 @@ public class InsertOperation extends AbstractJobOperation {
 		return ResultSet.builder()
 				.resultKind(ResultKind.SUCCESS_WITH_CONTENT)
 				.columns(ColumnInfo.create(ConstantNames.JOB_ID, new VarCharType(false, strJobId.length())),
-						ColumnInfo.create(ConstantNames.APPLICATION_ID, new VarCharType(true, applicationId.length() + 5)))
+						ColumnInfo.create(ConstantNames.APPLICATION_ID, new VarCharType(true, applicationId.length())))
 				.data(Row.of(ConstantNames.JOB_ID, strJobId), Row.of(ConstantNames.APPLICATION_ID, applicationId))
 				.build();
 	}
