@@ -27,10 +27,10 @@ import com.ververica.flink.table.gateway.rest.result.ConstantNames;
 import com.ververica.flink.table.gateway.rest.result.ResultKind;
 import com.ververica.flink.table.gateway.rest.result.ResultSet;
 import com.ververica.flink.table.gateway.utils.SqlExecutionException;
-
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.dag.Pipeline;
 import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.flink.client.deployment.ClusterClientJobClientAdapter;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.DeploymentOptions;
 import org.apache.flink.core.execution.JobClient;
@@ -40,7 +40,6 @@ import org.apache.flink.table.api.java.StreamTableEnvironment;
 import org.apache.flink.table.types.logical.BigIntType;
 import org.apache.flink.table.types.logical.VarCharType;
 import org.apache.flink.types.Row;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -75,13 +74,16 @@ public class InsertOperation extends AbstractJobOperation {
 
 	@Override
 	public ResultSet execute() {
-		jobId = executeUpdateInternal(context.getExecutionContext());
+		ExecuteResult result = executeUpdateInternal(context.getExecutionContext());
+		jobId = result.jobID;
 		String strJobId = jobId.toString();
+		String applicationId = result.applicationId;
 		return ResultSet.builder()
-			.resultKind(ResultKind.SUCCESS_WITH_CONTENT)
-			.columns(ColumnInfo.create(ConstantNames.JOB_ID, new VarCharType(false, strJobId.length())))
-			.data(Row.of(strJobId))
-			.build();
+				.resultKind(ResultKind.SUCCESS_WITH_CONTENT)
+				.columns(ColumnInfo.create(ConstantNames.JOB_ID, new VarCharType(false, strJobId.length())),
+						ColumnInfo.create(ConstantNames.APPLICATION_ID, new VarCharType(true, applicationId.length() + 5)))
+				.data(Row.of(ConstantNames.JOB_ID, strJobId), Row.of(ConstantNames.APPLICATION_ID, applicationId))
+				.build();
 	}
 
 	@Override
@@ -120,7 +122,12 @@ public class InsertOperation extends AbstractJobOperation {
 		clusterDescriptorAdapter.cancelJob();
 	}
 
-	private <C> JobID executeUpdateInternal(ExecutionContext<C> executionContext) {
+	class ExecuteResult {
+		JobID jobID;
+		String applicationId;
+	}
+
+	private <C> ExecuteResult executeUpdateInternal(ExecutionContext<C> executionContext) {
 		TableEnvironment tableEnv = executionContext.getTableEnvironment();
 		// parse and validate statement
 		try {
@@ -167,13 +174,21 @@ public class InsertOperation extends AbstractJobOperation {
 		// blocking deployment
 		try {
 			JobClient jobClient = deployer.deploy().get();
+			if (jobClient instanceof ClusterClientJobClientAdapter) {
+
+			}
 			JobID jobID = jobClient.getJobID();
 			this.clusterDescriptorAdapter =
 					ClusterDescriptorAdapterFactory.create(context.getExecutionContext(), configuration, sessionId, jobID);
+			C clusterId = executionContext.getClusterClientFactory().getClusterId(configuration);
+			String applicationId = Optional.ofNullable(clusterId).map(Object::toString).orElse("");
+			ExecuteResult executeResult = new ExecuteResult();
+			executeResult.jobID = jobID;
+			executeResult.applicationId = applicationId;
 			if (LOG.isDebugEnabled()) {
 				LOG.debug("Cluster Descriptor Adapter: {}", clusterDescriptorAdapter);
 			}
-			return jobID;
+			return executeResult;
 		} catch (Exception e) {
 			throw new RuntimeException("Error running SQL job.", e);
 		}
